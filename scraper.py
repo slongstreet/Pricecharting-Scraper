@@ -3,7 +3,7 @@ import re
 import csv
 import json
 import os
-import concurrent.futures
+import random
 from videogame import VideoGame
 from selenium import webdriver
 from bs4 import BeautifulSoup
@@ -14,7 +14,7 @@ from datetime import datetime
 #TODO add compression for csv file, convert the three doubles into one value
 
 # console names as they appear in pricecharting.com URLs
-CONSOLES = ["sega-game-gear"]
+CONSOLES = ["sega-game-gear", "gamecube", "wii-u", "sega-dreamcast", "playstation-vita"]
 #CONSOLES = ["super-nintendo", "nes", "nintendo-64", "gamecube", "wii", "wii-u", "nintendo-switch", "gameboy",
 #        "gameboy-advance", "nintendo-ds", "virtual-boy", "game-&-watch", "playstation", "playstation-2", "playstation-3",
 #        "playstation-4", "sega-master-system", "sega-genesis", "sega-32x", "sega-saturn",
@@ -123,24 +123,44 @@ def pullVals(console):
         (list) videogame objects
     """
     print ('Pulling values for %s console\n' % (console))
-    browser = scrollBottom(console)
-    return scrapeVals(console, browser)
+    browser = None
+    try:
+        browser = scrollBottom(console)
+        return scrapeVals(console, browser)
+    finally:
+        if browser is not None:
+            browser.quit()
 
 
 def main():
     """Orders execution of our program: scrape vals for each console then create CSV file
     """
     allGames = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futureGames = {executor.submit(pullVals, console): console for console in CONSOLES}
-        for future in concurrent.futures.as_completed(futureGames):
-            scrapedConsole = futureGames[future]
+    for i, console in enumerate(CONSOLES):
+        scrapedConsoleGames = []
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
-                consoleGames = future.result()
-                allGames = allGames + consoleGames
-                print ('%s console games successfully scraped\n' % (scrapedConsole))
+                consoleGames = pullVals(console)
+                if len(consoleGames) < 25:
+                    raise ValueError("Scraped only %d games, expected at least 25." % len(consoleGames))
+                scrapedConsoleGames = consoleGames
+                print ('%s console games successfully scraped\n' % (console))
+                break # success
             except Exception as exc:
-                print ('%s console generated an exception: %s' % (scrapedConsole, exc))
+                print ('%s console generated an exception on attempt %d: %s' % (console, attempt + 1, exc))
+                if attempt < max_retries - 1:
+                    pause = random.uniform(5, 10)
+                    print("Waiting %.2f seconds before retrying..." % pause)
+                    time.sleep(pause)
+        
+        allGames = allGames + scrapedConsoleGames
+        
+        if i < len(CONSOLES) - 1:
+            pause = random.uniform(10, 20)
+            print("Waiting %.2f seconds before scraping next console to avoid bot detection...\n" % pause)
+            time.sleep(pause)
+
     gameCsv(allGames)
 
 
